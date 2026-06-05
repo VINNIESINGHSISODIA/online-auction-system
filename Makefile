@@ -1,30 +1,30 @@
 # ══════════════════════════════════════════════════════════
-#  Online Auction System — Makefile (flat layout)
-#  All .c and .h files live in the same directory.
-#
-#  Usage:
-#    make              → build server + client
-#    make server       → build server only
-#    make client       → build client only
-#    make seed         → create first admin account
-#    make run_server   → build + start server
-#    make run_client   → build + start client
-#    make clean        → remove binaries
+#  Online Auction System — Makefile
+#  Directory layout:
+#    common/   → models.h, file_io.h, *.h
+#    server/   → *.c, *.h
+#    client/   → client.c
+#    data/     → runtime flat files (auto-created)
 # ══════════════════════════════════════════════════════════
 
 CC     = gcc
-CFLAGS = -Wall -Wextra -g -pthread -D_POSIX_C_SOURCE=200809L
+CFLAGS = -Wall -Wextra -g -pthread -D_POSIX_C_SOURCE=200809L \
+         -I. -Icommon -Iserver
 
-# ── all server .c files (everything except client.c and seed) ──
-SERVER_SRCS = server.c auth.c auctionengine.c bidhandler.c \
-              wallet.c dispute.c admin.c notify.c
+SERVER_SRCS = server/server.c       \
+              server/auth.c         \
+              server/auction_engine.c \
+              server/bid_handler.c  \
+              server/wallet.c       \
+              server/dispute.c      \
+              server/admin.c        \
+              server/notify.c
 
-CLIENT_SRCS = client.c
+CLIENT_SRCS = client/client.c
 
 SERVER_BIN  = auction_server
 CLIENT_BIN  = auction_client
 
-# ── default: build both ────────────────────────────────────
 all: data $(SERVER_BIN) $(CLIENT_BIN)
 
 data:
@@ -41,7 +41,6 @@ $(CLIENT_BIN): $(CLIENT_SRCS)
 server: data $(SERVER_BIN)
 client: data $(CLIENT_BIN)
 
-# ── seed: compile and run the admin seeder ────────────────
 seed: data
 	$(CC) $(CFLAGS) -o seed_admin seed_admin.c
 	./seed_admin
