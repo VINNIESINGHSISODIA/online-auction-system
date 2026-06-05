@@ -1,5 +1,5 @@
-#include "admin.h"
-#include file_io.h"
+#include "../common/admin.h"
+#include "../common/file_io.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>

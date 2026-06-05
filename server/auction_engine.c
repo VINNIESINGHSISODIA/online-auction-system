@@ -1,7 +1,7 @@
-#include "auction_engine.h"
-#include "wallet.h"
-#include "notify.h"
-#include file_io.h"
+#include "../common/auction_engine.h"
+#include "../common/wallet.h"
+#include "../common/notify.h"
+#include "../common/file_io.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>

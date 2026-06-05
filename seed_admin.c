@@ -17,7 +17,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
-#include "../auction_system/common/models.h"
+#include "../common/models.h"
 
 static void sha256_hex(const char *input, char out[65]) {
     char cmd[256];

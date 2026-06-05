@@ -1,7 +1,7 @@
-#include "bid_handler.h"
-#include "wallet.h"
-#include "notify.h"
-#include file_io.h"
+#include "../common/bid_handler.h"
+#include "../common/wallet.h"
+#include "../common/notify.h"
+#include "../common/file_io.h"
 #include <stdio.h>
 #include <string.h>
 #include <time.h>

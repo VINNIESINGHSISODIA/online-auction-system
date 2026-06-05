@@ -11,15 +11,15 @@
 #include <arpa/inet.h>
 #include <sys/stat.h>
 
-#include "models.h"
-#include "file_io.h"
-#include "auth.h"
-#include "auction_engine.h"
-#include "bid_handler.h"
-#include "wallet.h"
-#include "dispute.h"
-#include "admin.h"
-#include "notify.h"
+#include "../common/models.h"
+#include "../common/file_io.h"
+#include "../common/auth.h"
+#include "../common/auction_engine.h"
+#include "../common/bid_handler.h"
+#include "../common/wallet.h"
+#include "../common/dispute.h"
+#include "../common/admin.h"
+#include "../common/notify.h"
 
 /* ─── configuration ──────────────────────────────────────── */
 #define PORT             8080

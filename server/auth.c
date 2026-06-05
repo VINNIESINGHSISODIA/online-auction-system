@@ -1,5 +1,5 @@
-#include "auth.h"
-#include file_io.h"
+#include "../common/auth.h"
+#include "../common/file_io.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>

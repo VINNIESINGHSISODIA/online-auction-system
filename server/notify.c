@@ -1,5 +1,5 @@
-#include "notify.h"
-#include "file_io.h"
+#include "../common/notify.h"
+#include "../common/file_io.h"
 #include <stdio.h>
 #include <string.h>
 #include <pthread.h>
