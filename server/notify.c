@@ -1,4 +1,4 @@
-#include "../common/notify.h"
+#include "notify.h"
 #include "../common/file_io.h"
 #include <stdio.h>
 #include <string.h>

@@ -1,5 +1,5 @@
-#include "../common/dispute.h"
-#include "../common/wallet.h"
+#include "dispute.h"
+#include "wallet.h"
 #include "../common/file_io.h"
 #include <stdio.h>
 #include <string.h>

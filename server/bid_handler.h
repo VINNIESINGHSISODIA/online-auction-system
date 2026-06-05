@@ -1,7 +1,7 @@
 #ifndef BID_HANDLER_H
 #define BID_HANDLER_H
 
-#include "models.h"
+#include "../common/models.h"
 #include "auth.h"   /* pulls in extern send_msg declaration */
 
 /*

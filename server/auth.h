@@ -1,7 +1,7 @@
 #ifndef AUTH_H
 #define AUTH_H
 
-#include "models.h"
+#include "../common/models.h"
 
 /*
  * send_msg is defined in server.c but called by all modules.

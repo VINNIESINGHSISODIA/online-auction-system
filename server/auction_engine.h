@@ -1,7 +1,7 @@
 #ifndef AUCTION_ENGINE_H
 #define AUCTION_ENGINE_H
 
-#include "models.h"
+#include "../common/models.h"
 #include "auth.h"   /* pulls in extern send_msg declaration */
 
 /*
