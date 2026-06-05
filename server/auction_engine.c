@@ -1,4 +1,4 @@
-#include "../common/auction_engine.h"
+#include "../server/auction_engine.h"
 #include "../common/wallet.h"
 #include "../common/notify.h"
 #include "../common/file_io.h"

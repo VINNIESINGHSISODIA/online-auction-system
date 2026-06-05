@@ -1,4 +1,4 @@
-#include "../common/auth.h"
+#include "../server/auth.h"
 #include "../common/file_io.h"
 #include <string.h>
 #include <stdio.h>

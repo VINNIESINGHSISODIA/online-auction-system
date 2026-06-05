@@ -13,9 +13,9 @@
 
 #include "../common/models.h"
 #include "../common/file_io.h"
-#include "../common/auth.h"
-#include "../common/auction_engine.h"
-#include "../common/bid_handler.h"
+#include "../server/auth.h"
+#include "../server/auction_engine.h"
+#include "../server/bid_handler.h"
 #include "../common/wallet.h"
 #include "../common/dispute.h"
 #include "../common/admin.h"

@@ -1,4 +1,5 @@
-#include "dispute.h"
+#ifndef DISPUTE_H
+#define DISPUTE_H
 #include "wallet.h"
 #include "../common/file_io.h"
 #include <stdio.h>
@@ -291,3 +292,4 @@ void handle_toggle_account(int client_fd, const char *buf, User *moderator) {
              target.user_id, target.status, moderator->user_id);
     log_txn(log);
 }
+#endif /* DISPUTE_H */

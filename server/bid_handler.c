@@ -1,4 +1,4 @@
-#include "../common/bid_handler.h"
+#include "../server/bid_handler.h"
 #include "../common/wallet.h"
 #include "../common/notify.h"
 #include "../common/file_io.h"
