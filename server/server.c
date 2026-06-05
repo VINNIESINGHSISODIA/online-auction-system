@@ -310,6 +310,8 @@ static void handle_client(int client_fd) {
             Session empty = {0};
             write_session(slot, &empty);
         }
+
+    notify_unregister(current_user.user_id);
     }
 
     close(client_fd);

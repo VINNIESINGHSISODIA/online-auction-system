@@ -1,4 +1,5 @@
 #include "auth.h"
+#include "notify.h"
 #include "../common/file_io.h"
 #include <string.h>
 #include <stdio.h>
@@ -109,7 +110,7 @@ int handle_login(int client_fd, const char *buf, User *out_user) {
     write_session(slot, &s);
 
     pthread_mutex_unlock(&auth_lock);
-
+    notify_register(u.user_id, client_fd);
     /* ── Step 6: update last_login in users.dat ── */
     u.last_login = time(NULL);
     write_user(&u);
@@ -141,7 +142,7 @@ void handle_logout(int client_fd, User *u) {
     }
 
     pthread_mutex_unlock(&auth_lock);
-
+    notify_unregister(u->user_id);
     send_msg(client_fd, MSG_LOGOUT_RESP, ERR_OK, NULL, 0);
 
     char log[128];
