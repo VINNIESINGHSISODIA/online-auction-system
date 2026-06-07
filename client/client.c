@@ -20,6 +20,21 @@ static User   me;
 static int    logged_in = 0;
 static pthread_mutex_t print_lock = PTHREAD_MUTEX_INITIALIZER;
 
+/*
+ * req_lock — prevents the listener thread from reading the socket
+ * while the main thread is in the middle of a request/response cycle.
+ *
+ * Problem without this:
+ *   Main thread sends MSG_ADD_USER_REQ and waits for response.
+ *   Listener thread also reads the same socket and steals the response.
+ *   Main thread waits forever → hang.
+ *
+ * Fix:
+ *   Main thread holds req_lock during every send+recv pair.
+ *   Listener thread uses trylock — if main thread is busy, it skips.
+ */
+static pthread_mutex_t req_lock = PTHREAD_MUTEX_INITIALIZER;
+
 #define PRINT(fmt, ...) do { \
     pthread_mutex_lock(&print_lock); \
     printf(fmt, ##__VA_ARGS__); \
@@ -85,39 +100,62 @@ static void print_auction(const Auction *a) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   LISTENER THREAD — handles server-push notifications
-   Uses select() with 1s timeout so it exits cleanly on logout
+   LISTENER THREAD — handles server-push notifications only.
+   Uses trylock so it never interferes with main thread I/O.
    ══════════════════════════════════════════════════════════ */
 static void *listener_thread(void *arg) {
     (void)arg;
     char buf[1024];
     MessageHeader hdr;
+
     while (logged_in) {
-        fd_set rfds; FD_ZERO(&rfds); FD_SET(server_fd, &rfds);
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        FD_SET(server_fd, &rfds);
         struct timeval tv = {1, 0};
-        if (select(server_fd + 1, &rfds, NULL, NULL, &tv) <= 0) continue;
+
+        if (select(server_fd + 1, &rfds, NULL, NULL, &tv) <= 0)
+            continue;
+
+        /* Try to acquire req_lock.
+           If main thread is doing a request, skip this cycle.
+           The notification will arrive later or be re-sent. */
+        if (pthread_mutex_trylock(&req_lock) != 0)
+            continue;
+
         memset(buf, 0, sizeof(buf));
-        if (recv_msg(&hdr, buf, sizeof(buf)) < 0) break;
+        if (recv_msg(&hdr, buf, sizeof(buf)) < 0) {
+            pthread_mutex_unlock(&req_lock);
+            break;
+        }
+
         switch (hdr.type) {
             case MSG_NOTIFY_OUTBID: {
                 typedef struct { uint32_t aid; double bid; } P;
                 P *p = (P*)buf;
                 PRINT("\n  ** OUTBID on Auction #%u — new high: Rs.%.2f\n",
-                      p->aid, p->bid); break;
+                      p->aid, p->bid);
+                break;
             }
             case MSG_NOTIFY_AUCTION_WON: {
                 typedef struct { uint32_t aid; double amt; } P;
                 P *p = (P*)buf;
                 PRINT("\n  ** YOU WON Auction #%u for Rs.%.2f!\n",
-                      p->aid, p->amt); break;
+                      p->aid, p->amt);
+                break;
             }
             case MSG_NOTIFY_AUCTION_CLOSED: {
                 typedef struct { uint32_t aid; } P;
                 P *p = (P*)buf;
-                PRINT("\n  ** Auction #%u has closed.\n", p->aid); break;
+                PRINT("\n  ** Auction #%u has closed.\n", p->aid);
+                break;
             }
-            default: break;
+            default:
+                /* unknown type — ignore */
+                break;
         }
+
+        pthread_mutex_unlock(&req_lock);
     }
     return NULL;
 }
@@ -130,9 +168,14 @@ static int do_login(void) {
     P p; memset(&p, 0, sizeof(p));
     read_line("  Username: ", p.u, MAX_USERNAME);
     read_line("  Password: ", p.p, MAX_PASSWORD);
+
+    pthread_mutex_lock(&req_lock);
     send_msg(MSG_LOGIN_REQ, &p, sizeof(p));
     MessageHeader hdr; char buf[sizeof(User)];
-    if (recv_msg(&hdr, buf, sizeof(buf)) < 0) return 0;
+    int r = recv_msg(&hdr, buf, sizeof(buf));
+    pthread_mutex_unlock(&req_lock);
+
+    if (r < 0) return 0;
     if (hdr.status == ERR_OK) {
         memcpy(&me, buf, sizeof(User));
         logged_in = 1;
@@ -140,18 +183,21 @@ static int do_login(void) {
         return 1;
     }
     switch(hdr.status) {
-        case ERR_AUTH_FAIL:      PRINT("  Invalid credentials.\n");       break;
+        case ERR_AUTH_FAIL:      PRINT("  Invalid credentials.\n");        break;
         case ERR_ALREADY_LOGGED: PRINT("  Already logged in elsewhere.\n"); break;
-        case ERR_ACCOUNT_BANNED: PRINT("  Account inactive/banned.\n");   break;
+        case ERR_ACCOUNT_BANNED: PRINT("  Account inactive/banned.\n");    break;
         default:                 PRINT("  Login failed.\n");
     }
     return 0;
 }
 
 static void do_logout(void) {
+    pthread_mutex_lock(&req_lock);
     send_msg(MSG_LOGOUT_REQ, NULL, 0);
     MessageHeader hdr; char buf[64];
     recv_msg(&hdr, buf, sizeof(buf));
+    pthread_mutex_unlock(&req_lock);
+
     logged_in = 0;
     PRINT("  Goodbye, %s!\n", me.full_name);
 }
@@ -166,20 +212,28 @@ static void do_change_password(void) {
     if (strncmp(p.nw, confirm, MAX_PASSWORD)) {
         PRINT("  Passwords do not match.\n"); return;
     }
+
+    pthread_mutex_lock(&req_lock);
     send_msg(MSG_CHANGE_PASS_REQ, &p, sizeof(p));
     MessageHeader hdr; char buf[64];
     recv_msg(&hdr, buf, sizeof(buf));
+    pthread_mutex_unlock(&req_lock);
+
     PRINT(hdr.status == ERR_OK ? "  Password changed.\n"
                                : "  Failed — wrong current password?\n");
 }
 
 /* ══════════════════════════════════════════════════════════
-   SHARED: view auctions (used by all roles)
+   SHARED: view auctions
    ══════════════════════════════════════════════════════════ */
 static void view_auctions(void) {
+    pthread_mutex_lock(&req_lock);
     send_msg(MSG_VIEW_AUCTIONS_REQ, NULL, 0);
     MessageHeader hdr; char buf[256 * sizeof(Auction)];
-    if (recv_msg(&hdr, buf, sizeof(buf)) < 0) return;
+    int r = recv_msg(&hdr, buf, sizeof(buf));
+    pthread_mutex_unlock(&req_lock);
+
+    if (r < 0) return;
     int n = hdr.length / sizeof(Auction);
     if (!n) { PRINT("  No open auctions.\n"); return; }
     sep();
@@ -198,9 +252,13 @@ static void bidder_place_bid(void) {
     P p;
     p.aid    = (uint32_t)read_int("  Auction ID: ");
     p.amount = read_double("  Your bid (Rs.): ");
+
+    pthread_mutex_lock(&req_lock);
     send_msg(MSG_PLACE_BID_REQ, &p, sizeof(p));
     MessageHeader hdr; char buf[sizeof(Bid)];
     recv_msg(&hdr, buf, sizeof(buf));
+    pthread_mutex_unlock(&req_lock);
+
     switch(hdr.status) {
         case ERR_OK:             PRINT("  Bid placed! You are the highest bidder.\n"); break;
         case ERR_BID_TOO_LOW:    PRINT("  Too low — must beat the current highest bid.\n"); break;
@@ -211,9 +269,12 @@ static void bidder_place_bid(void) {
 }
 
 static void bidder_balance(void) {
+    pthread_mutex_lock(&req_lock);
     send_msg(MSG_VIEW_BALANCE_REQ, NULL, 0);
     MessageHeader hdr; char buf[sizeof(User)];
     recv_msg(&hdr, buf, sizeof(buf));
+    pthread_mutex_unlock(&req_lock);
+
     User *u = (User*)buf;
     PRINT("  Balance: Rs.%.2f  |  On hold: Rs.%.2f  |  Available: Rs.%.2f\n",
           u->wallet_balance, u->wallet_hold,
@@ -224,18 +285,25 @@ static void bidder_deposit(void) {
     typedef struct { double amount; } P;
     P p; p.amount = read_double("  Deposit (Rs.): ");
     if (p.amount <= 0) { PRINT("  Invalid amount.\n"); return; }
+
+    pthread_mutex_lock(&req_lock);
     send_msg(MSG_DEPOSIT_REQ, &p, sizeof(p));
     MessageHeader hdr; char buf[sizeof(User)];
     recv_msg(&hdr, buf, sizeof(buf));
+    pthread_mutex_unlock(&req_lock);
+
     if (hdr.status == ERR_OK)
         PRINT("  Deposit successful. New balance: Rs.%.2f\n",
               ((User*)buf)->wallet_balance);
 }
 
 static void bidder_my_bids(void) {
+    pthread_mutex_lock(&req_lock);
     send_msg(MSG_VIEW_MY_BIDS_REQ, NULL, 0);
     MessageHeader hdr; char buf[256 * sizeof(Bid)];
     recv_msg(&hdr, buf, sizeof(buf));
+    pthread_mutex_unlock(&req_lock);
+
     int n = hdr.length / sizeof(Bid);
     if (!n) { PRINT("  No bids yet.\n"); return; }
     sep();
@@ -259,27 +327,52 @@ static void bidder_feedback(void) {
     P p; memset(&p,0,sizeof(p));
     p.aid = (uint32_t)read_int("  Auction ID: ");
     read_line("  Feedback: ", p.msg, MAX_FEEDBACK);
+
+    pthread_mutex_lock(&req_lock);
     send_msg(MSG_SUBMIT_FEEDBACK_REQ, &p, sizeof(p));
     MessageHeader hdr; char buf[64];
     recv_msg(&hdr, buf, sizeof(buf));
+    pthread_mutex_unlock(&req_lock);
+
     PRINT(hdr.status==ERR_OK ? "  Feedback submitted.\n" : "  Failed.\n");
+}
+
+static void bidder_file_dispute(void) {
+    typedef struct { uint32_t aid; char reason[MAX_DESC]; } P;
+    P p; memset(&p, 0, sizeof(p));
+    p.aid = (uint32_t)read_int("  Auction ID: ");
+    read_line("  Reason: ", p.reason, MAX_DESC);
+
+    pthread_mutex_lock(&req_lock);
+    send_msg(MSG_FILE_DISPUTE_REQ, &p, sizeof(p));
+    MessageHeader hdr; char buf[sizeof(Dispute)];
+    recv_msg(&hdr, buf, sizeof(buf));
+    pthread_mutex_unlock(&req_lock);
+
+    switch(hdr.status) {
+        case ERR_OK:             PRINT("  Dispute filed.\n"); break;
+        case ERR_NOT_FOUND:      PRINT("  Auction not found.\n"); break;
+        case ERR_AUCTION_CLOSED: PRINT("  Auction not closed yet.\n"); break;
+        default:                 PRINT("  Error.\n");
+    }
 }
 
 static void menu_bidder(void) {
     while (logged_in) {
         sep(); PRINT("  BIDDER — %s\n", me.full_name); sep();
-        PRINT("  1.View auctions  2.Place bid  3.Balance\n");
-        PRINT("  4.Deposit        5.My bids    6.Feedback\n");
-        PRINT("  7.Change pass    8.Logout\n"); sep();
+        PRINT("  1.View auctions  2.Place bid   3.Balance\n");
+        PRINT("  4.Deposit        5.My bids     6.Feedback\n");
+        PRINT("  7.File dispute   8.Change pass 9.Logout\n"); sep();
         switch(read_int("  Choice: ")) {
-            case 1: view_auctions();       break;
-            case 2: bidder_place_bid();    break;
-            case 3: bidder_balance();      break;
-            case 4: bidder_deposit();      break;
-            case 5: bidder_my_bids();      break;
-            case 6: bidder_feedback();     break;
-            case 7: do_change_password();  break;
-            case 8: do_logout(); return;
+            case 1: view_auctions();        break;
+            case 2: bidder_place_bid();     break;
+            case 3: bidder_balance();       break;
+            case 4: bidder_deposit();       break;
+            case 5: bidder_my_bids();       break;
+            case 6: bidder_feedback();      break;
+            case 7: bidder_file_dispute();  break;
+            case 8: do_change_password();   break;
+            case 9: do_logout(); return;
             default: PRINT("  Invalid.\n");
         }
     }
@@ -299,9 +392,13 @@ static void auctioneer_create(void) {
     p.start   = read_double("  Start price (Rs.): ");
     p.reserve = read_double("  Reserve (Rs.,0=none): ");
     p.dur     = (uint32_t)read_int("  Duration (seconds): ");
+
+    pthread_mutex_lock(&req_lock);
     send_msg(MSG_CREATE_AUCTION_REQ, &p, sizeof(p));
     MessageHeader hdr; char buf[sizeof(Auction)];
     recv_msg(&hdr, buf, sizeof(buf));
+    pthread_mutex_unlock(&req_lock);
+
     if (hdr.status==ERR_OK)
         PRINT("  Auction #%u created.\n", ((Auction*)buf)->auction_id);
     else PRINT("  Failed.\n");
@@ -310,9 +407,13 @@ static void auctioneer_create(void) {
 static void auctioneer_close(void) {
     typedef struct { uint32_t aid; } P;
     P p; p.aid=(uint32_t)read_int("  Auction ID: ");
+
+    pthread_mutex_lock(&req_lock);
     send_msg(MSG_CLOSE_AUCTION_REQ, &p, sizeof(p));
     MessageHeader hdr; char buf[sizeof(Auction)];
     recv_msg(&hdr, buf, sizeof(buf));
+    pthread_mutex_unlock(&req_lock);
+
     switch(hdr.status) {
         case ERR_OK:             PRINT("  Auction closed and settled.\n"); break;
         case ERR_PERMISSION:     PRINT("  Not your auction.\n"); break;
@@ -341,9 +442,12 @@ static void menu_auctioneer(void) {
    MODERATOR
    ══════════════════════════════════════════════════════════ */
 static void mod_disputes(void) {
+    pthread_mutex_lock(&req_lock);
     send_msg(MSG_VIEW_DISPUTES_REQ, NULL, 0);
     MessageHeader hdr; char buf[128*sizeof(Dispute)];
     recv_msg(&hdr, buf, sizeof(buf));
+    pthread_mutex_unlock(&req_lock);
+
     int n = hdr.length/sizeof(Dispute);
     if (!n) { PRINT("  No open disputes.\n"); return; }
     sep();
@@ -364,16 +468,23 @@ static void mod_resolve(void) {
     PRINT("  1.Resolve(refund)  2.Reject\n");
     p.st=(read_int("  Choice: ")==1)?DISPUTE_RESOLVED:DISPUTE_REJECTED;
     read_line("  Notes: ", p.res, MAX_DESC);
+
+    pthread_mutex_lock(&req_lock);
     send_msg(MSG_RESOLVE_DISPUTE_REQ, &p, sizeof(p));
     MessageHeader hdr; char buf[sizeof(Dispute)];
     recv_msg(&hdr, buf, sizeof(buf));
+    pthread_mutex_unlock(&req_lock);
+
     PRINT(hdr.status==ERR_OK ? "  Resolved.\n" : "  Failed.\n");
 }
 
 static void mod_feedback(void) {
+    pthread_mutex_lock(&req_lock);
     send_msg(MSG_VIEW_FEEDBACK_REQ, NULL, 0);
     MessageHeader hdr; char buf[256*sizeof(Feedback)];
     recv_msg(&hdr, buf, sizeof(buf));
+    pthread_mutex_unlock(&req_lock);
+
     int n = hdr.length/sizeof(Feedback);
     if (!n) { PRINT("  No unreviewed feedback.\n"); return; }
     sep();
@@ -392,9 +503,13 @@ static void mod_toggle(void) {
     PRINT("  1.Activate  2.Deactivate  3.Ban\n");
     int c=read_int("  Choice: ");
     p.st=(c==1)?ACCOUNT_ACTIVE:(c==2)?ACCOUNT_INACTIVE:ACCOUNT_BANNED;
+
+    pthread_mutex_lock(&req_lock);
     send_msg(MSG_TOGGLE_ACCOUNT_REQ, &p, sizeof(p));
     MessageHeader hdr; char buf[sizeof(User)];
     recv_msg(&hdr, buf, sizeof(buf));
+    pthread_mutex_unlock(&req_lock);
+
     switch(hdr.status) {
         case ERR_OK:         PRINT("  Status updated.\n"); break;
         case ERR_PERMISSION: PRINT("  Cannot modify higher-rank user.\n"); break;
@@ -433,9 +548,13 @@ static void admin_add_user(void) {
     read_line("  Full name: ", p.n, MAX_NAME);
     PRINT("  0=Bidder 1=Auctioneer 2=Moderator 3=Admin\n");
     p.role=(Role)read_int("  Role: ");
+
+    pthread_mutex_lock(&req_lock);
     send_msg(MSG_ADD_USER_REQ, &p, sizeof(p));
     MessageHeader hdr; char buf[sizeof(User)];
     recv_msg(&hdr, buf, sizeof(buf));
+    pthread_mutex_unlock(&req_lock);
+
     if (hdr.status==ERR_OK)
         PRINT("  User '%s' created (id=%u).\n",
               ((User*)buf)->username, ((User*)buf)->user_id);
@@ -443,9 +562,12 @@ static void admin_add_user(void) {
 }
 
 static void admin_list_users(void) {
+    pthread_mutex_lock(&req_lock);
     send_msg(MSG_LIST_USERS_REQ, NULL, 0);
     MessageHeader hdr; char buf[512*sizeof(User)];
     recv_msg(&hdr, buf, sizeof(buf));
+    pthread_mutex_unlock(&req_lock);
+
     int n = hdr.length/sizeof(User);
     if (!n) { PRINT("  No users.\n"); return; }
     sep();
@@ -469,9 +591,13 @@ static void admin_change_role(void) {
     p.uid=(uint32_t)read_int("  User ID: ");
     PRINT("  0=Bidder 1=Auctioneer 2=Moderator 3=Admin\n");
     p.role=(Role)read_int("  New role: ");
+
+    pthread_mutex_lock(&req_lock);
     send_msg(MSG_CHANGE_ROLE_REQ, &p, sizeof(p));
     MessageHeader hdr; char buf[sizeof(User)];
     recv_msg(&hdr, buf, sizeof(buf));
+    pthread_mutex_unlock(&req_lock);
+
     switch(hdr.status) {
         case ERR_OK:         PRINT("  Role updated.\n"); break;
         case ERR_PERMISSION: PRINT("  Cannot demote last admin.\n"); break;
@@ -522,7 +648,7 @@ int main(void) {
         if (read_int("  Choice: ") != 1) break;
         if (!do_login()) continue;
 
-        /* listener thread: handles push notifications concurrently */
+        /* listener thread: handles push notifications only */
         pthread_t tid;
         pthread_create(&tid, NULL, listener_thread, NULL);
         pthread_detach(tid);

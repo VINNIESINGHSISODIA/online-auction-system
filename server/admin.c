@@ -40,11 +40,19 @@ void handle_add_user(int client_fd, const char *buf) {
     AddUserPayload *req = (AddUserPayload *)buf;
 
     /* check username not already taken */
-    User existing;
-    if (find_user_by_username(req->username, &existing) == 0) {
-        send_msg(client_fd, MSG_ADD_USER_RESP, ERR_INTERNAL, NULL, 0);
-        return;
-    }
+    int ufd = open(FILE_USERS, O_RDONLY, FILE_PERM);
+    if (ufd >= 0) {
+        User tmp;
+        while (read(ufd, &tmp, sizeof(User)) == sizeof(User)) {
+            if (!tmp.is_deleted &&
+                strncmp(tmp.username, req->username, MAX_USERNAME) == 0) {
+                close(ufd);
+                send_msg(client_fd, MSG_ADD_USER_RESP, ERR_INTERNAL, NULL, 0);
+                return;
+            }
+        }
+        close(ufd);
+    }   
 
     User u;
     memset(&u, 0, sizeof(u));
@@ -91,26 +99,15 @@ void handle_list_users(int client_fd) {
         return;
     }
 
-    lock_file_read(fd);
-
-    /*
-     * We build the list with password fields zeroed out.
-     * Never send password hashes over the wire — even to admins.
-     * If an admin needs to reset a password, they set a new one;
-     * they should never SEE the existing hash.
-     */
     User list[512];
     int  count = 0;
     User u;
-
     while (read(fd, &u, sizeof(User)) == sizeof(User) && count < 512) {
         if (!u.is_deleted) {
             memset(u.password, 0, sizeof(u.password));
             list[count++] = u;
         }
     }
-
-    unlock_file(fd);
     close(fd);
 
     send_msg(client_fd, MSG_LIST_USERS_RESP, ERR_OK,

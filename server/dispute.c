@@ -74,31 +74,48 @@ void handle_file_dispute(int client_fd, const char *buf, User *u) {
 /* ══════════════════════════════════════════════════════════
    VIEW DISPUTES  (moderator sees all open disputes)
    ══════════════════════════════════════════════════════════ */
-void handle_view_disputes(int client_fd) {
+   void handle_view_disputes(int client_fd) {
     int fd = open(FILE_DISPUTES, O_RDONLY, FILE_PERM);
     if (fd < 0) {
-        /* no disputes file yet = no disputes */
         send_msg(client_fd, MSG_VIEW_DISPUTES_RESP, ERR_OK, NULL, 0);
         return;
     }
-
-    lock_file_read(fd);
-
     Dispute list[128];
     int count = 0;
     Dispute d;
-
     while (read(fd, &d, sizeof(Dispute)) == sizeof(Dispute) && count < 128) {
         if (d.status == DISPUTE_OPEN)
             list[count++] = d;
     }
-
-    unlock_file(fd);
     close(fd);
-
     send_msg(client_fd, MSG_VIEW_DISPUTES_RESP, ERR_OK,
              list, (uint32_t)(count * sizeof(Dispute)));
 }
+// void handle_view_disputes(int client_fd) {
+//     int fd = open(FILE_DISPUTES, O_RDONLY, FILE_PERM);
+//     if (fd < 0) {
+//         /* no disputes file yet = no disputes */
+//         send_msg(client_fd, MSG_VIEW_DISPUTES_RESP, ERR_OK, NULL, 0);
+//         return;
+//     }
+
+//     lock_file_read(fd);
+
+//     Dispute list[128];
+//     int count = 0;
+//     Dispute d;
+
+//     while (read(fd, &d, sizeof(Dispute)) == sizeof(Dispute) && count < 128) {
+//         if (d.status == DISPUTE_OPEN)
+//             list[count++] = d;
+//     }
+
+//     unlock_file(fd);
+//     close(fd);
+
+//     send_msg(client_fd, MSG_VIEW_DISPUTES_RESP, ERR_OK,
+//              list, (uint32_t)(count * sizeof(Dispute)));
+// }
 
 /* ══════════════════════════════════════════════════════════
    RESOLVE DISPUTE  (moderator accepts or rejects)
@@ -215,30 +232,18 @@ void handle_view_feedback(int client_fd) {
         send_msg(client_fd, MSG_VIEW_FEEDBACK_RESP, ERR_OK, NULL, 0);
         return;
     }
-
-    lock_file_read(fd);
-
     Feedback list[256];
     int count = 0;
     Feedback f;
-
     while (read(fd, &f, sizeof(Feedback)) == sizeof(Feedback) && count < 256) {
         if (!f.reviewed)
             list[count++] = f;
     }
-
-    unlock_file(fd);
     close(fd);
 
-    /*
-     * Mark all returned feedback as reviewed.
-     * We do a second pass with a write lock.
-     * Why two passes? We don't want to hold a write lock
-     * while building the response — keep critical sections short.
-     */
+    /* mark reviewed */
     fd = open(FILE_FEEDBACK, O_RDWR, FILE_PERM);
     if (fd >= 0) {
-        lock_file_write(fd);
         Feedback tmp;
         off_t offset = 0;
         while (read(fd, &tmp, sizeof(Feedback)) == sizeof(Feedback)) {
@@ -249,14 +254,12 @@ void handle_view_feedback(int client_fd) {
             }
             offset += sizeof(Feedback);
         }
-        unlock_file(fd);
         close(fd);
     }
 
     send_msg(client_fd, MSG_VIEW_FEEDBACK_RESP, ERR_OK,
              list, (uint32_t)(count * sizeof(Feedback)));
 }
-
 /* ══════════════════════════════════════════════════════════
    TOGGLE ACCOUNT  (moderator activates or deactivates a user)
    ══════════════════════════════════════════════════════════ */

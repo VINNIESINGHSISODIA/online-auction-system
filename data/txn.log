@@ -1,0 +1,67 @@
+[2026-06-07 19:11:59] LOGIN user_id=1 username=admin
+[2026-06-07 19:24:40] LOGIN user_id=1 username=admin
+[2026-06-07 19:26:22] ADD_USER id=2 username=bidder1 role=0
+[2026-06-07 19:31:12] LOGIN user_id=1 username=admin
+[2026-06-07 19:33:28] LOGIN user_id=1 username=admin
+[2026-06-07 19:35:34] LOGIN user_id=1 username=admin
+[2026-06-07 19:38:28] LOGIN user_id=1 username=admin
+[2026-06-07 19:44:52] LOGIN user_id=1 username=admin
+[2026-06-07 19:46:00] ADD_USER id=3 username=auctioneer1 role=1
+[2026-06-07 20:00:32] LOGIN user_id=1 username=admin
+[2026-06-07 20:00:56] ADD_USER id=4 username=bidder2 role=0
+[2026-06-07 20:01:43] CHANGE_ROLE user=4 old=0 new=1
+[2026-06-07 20:02:23] CHANGE_PASS user_id=1
+[2026-06-07 20:02:30] LOGOUT user_id=1
+[2026-06-07 20:03:52] LOGIN user_id=3 username=auctioneer1
+[2026-06-07 20:04:44] CREATE_AUCTION id=1 seller=3 item='Laptop' end=1780842944
+[2026-06-07 20:05:44] TIMER_CLOSE auction_id=1
+[2026-06-07 20:05:52] LOGIN user_id=2 username=bidder1
+[2026-06-07 20:06:14] CREDIT user=2 amount=+1000.00
+[2026-06-07 20:07:00] CREATE_AUCTION id=2 seller=3 item='Laptop' end=1780843200
+[2026-06-07 20:07:18] HOLD user=2 amount=+600.00
+[2026-06-07 20:07:18] BID auction_id=2 bidder_id=2 amount=600.00
+[2026-06-07 20:10:01] WAL_SETTLE auction=2 winner=2 seller=3 amount=600.00
+[2026-06-07 20:10:01] SETTLE user=2 amount=600.00
+[2026-06-07 20:10:01] CREDIT user=3 amount=+600.00
+[2026-06-07 20:10:01] TIMER_CLOSE auction_id=2
+[2026-06-07 20:13:07] LOGOUT user_id=3
+[2026-06-07 20:13:37] LOGIN user_id=1 username=admin
+[2026-06-07 20:14:26] ADD_USER id=5 username=mod1 role=2
+[2026-06-07 20:14:34] LOGOUT user_id=1
+[2026-06-07 20:15:01] LOGIN user_id=5 username=mod1
+[2026-06-07 20:15:39] LOGIN user_id=5 username=mod1
+[2026-06-07 20:24:15] LOGIN user_id=2 username=bidder1
+[2026-06-07 20:24:42] FILE_DISPUTE dispute_id=1 auction=2 by_user=2
+[2026-06-07 20:25:10] LOGIN user_id=5 username=mod1
+[2026-06-07 20:25:40] WAL_REFUND dispute=1 auction=2 winner=2 seller=3 amount=600.00
+[2026-06-07 20:25:40] CREDIT user=2 amount=+600.00
+[2026-06-07 20:25:40] CREDIT user=3 amount=+-600.00
+[2026-06-07 20:25:40] RESOLVE_DISPUTE id=1 status=1 by_mod=5
+[2026-06-07 20:26:35] LOGOUT user_id=5
+[2026-06-07 20:27:44] LOGIN user_id=4 username=bidder2
+[2026-06-07 20:27:57] CHANGE_PASS user_id=4
+[2026-06-07 20:28:01] LOGOUT user_id=4
+[2026-06-07 20:28:27] LOGIN user_id=1 username=admin
+[2026-06-07 20:28:53] CHANGE_ROLE user=4 old=1 new=0
+[2026-06-07 20:29:05] LOGIN user_id=4 username=bidder2
+[2026-06-07 20:29:41] LOGIN user_id=3 username=auctioneer1
+[2026-06-07 20:30:19] CREDIT user=4 amount=+1000.00
+[2026-06-07 20:30:52] CREATE_AUCTION id=3 seller=3 item='necklace' end=1780844752
+[2026-06-07 20:31:23] HOLD user=2 amount=+200.00
+[2026-06-07 20:31:23] BID auction_id=3 bidder_id=2 amount=200.00
+[2026-06-07 20:31:35] RELEASE user=2 amount=200.00
+[2026-06-07 20:31:35] HOLD user=4 amount=+250.00
+[2026-06-07 20:31:35] BID auction_id=3 bidder_id=4 amount=250.00
+[2026-06-07 20:34:57] RELEASE user=4 amount=250.00
+[2026-06-07 20:34:57] HOLD user=4 amount=+300.00
+[2026-06-07 20:34:57] BID auction_id=3 bidder_id=4 amount=300.00
+[2026-06-07 20:35:24] RELEASE user=4 amount=300.00
+[2026-06-07 20:35:24] HOLD user=4 amount=+500.00
+[2026-06-07 20:35:24] BID auction_id=3 bidder_id=4 amount=500.00
+[2026-06-07 20:35:45] RELEASE user=4 amount=500.00
+[2026-06-07 20:35:45] HOLD user=2 amount=+600.00
+[2026-06-07 20:35:45] BID auction_id=3 bidder_id=2 amount=600.00
+[2026-06-07 20:35:52] WAL_SETTLE auction=3 winner=2 seller=3 amount=600.00
+[2026-06-07 20:35:52] SETTLE user=2 amount=600.00
+[2026-06-07 20:35:52] CREDIT user=3 amount=+600.00
+[2026-06-07 20:35:52] TIMER_CLOSE auction_id=3

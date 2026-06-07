@@ -5,7 +5,7 @@
 #include <errno.h>
 #include <signal.h>
 #include <pthread.h>
-#include <semaphore.h>
+// #include <semaphore.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -37,7 +37,8 @@ typedef struct {
     int  count;                 /* current items in queue           */
 
     pthread_mutex_t lock;       /* guards front/rear/count          */
-    sem_t           available;  /* counting semaphore: #jobs ready  */
+    pthread_cond_t  available;
+    int  ready;;  /* counting semaphore: #jobs ready  */
 } WorkQueue;
 
 static WorkQueue   wq;
@@ -65,10 +66,9 @@ static int enqueue_client(int fd) {
     wq.fds[wq.rear] = fd;
     wq.rear  = (wq.rear + 1) % WORK_QUEUE_SIZE;
     wq.count++;
-
+    wq.ready = 1;
+    pthread_cond_signal(&wq.available);
     pthread_mutex_unlock(&wq.lock);
-
-    sem_post(&wq.available);   /* wake one worker */
     return 0;
 }
 
@@ -78,14 +78,12 @@ static int enqueue_client(int fd) {
    job is available, then pops and returns the fd.
    ────────────────────────────────────────────────────────── */
 static int dequeue_client(void) {
-    sem_wait(&wq.available);   /* sleep here if queue is empty     */
-
     pthread_mutex_lock(&wq.lock);
-
+    while (wq.count == 0)
+        pthread_cond_wait(&wq.available, &wq.lock);
     int fd = wq.fds[wq.front];
     wq.front = (wq.front + 1) % WORK_QUEUE_SIZE;
     wq.count--;
-
     pthread_mutex_unlock(&wq.lock);
     return fd;
 }
@@ -160,6 +158,7 @@ int recv_msg(int fd, MessageHeader *hdr_out, void *buf, size_t buf_size) {
  *   Each handler returns 0 (keep going) or -1 (close connection).
  */
 static void handle_client(int client_fd) {
+    if (client_fd <= 0) return;
     char buf[4096];
     MessageHeader hdr;
     int running = 1;
@@ -188,6 +187,12 @@ static void handle_client(int client_fd) {
         switch (hdr.type) {
 
             /* ── AUTH ── */
+            case MSG_FILE_DISPUTE_REQ:
+                if (current_user.role == ROLE_BIDDER)
+                    handle_file_dispute(client_fd, buf, &current_user);
+                else
+                    send_msg(client_fd, MSG_ERROR, ERR_PERMISSION, NULL, 0);
+                break;
             case MSG_LOGIN_REQ:
                 authenticated = handle_login(client_fd, buf, &current_user);
                 break;
@@ -344,8 +349,9 @@ static void *worker_thread(void *arg) {
 
 static void init_work_queue(void) {
     memset(&wq, 0, sizeof(wq));
+    for (int i = 0; i < WORK_QUEUE_SIZE; i++) wq.fds[i] = -1;
     pthread_mutex_init(&wq.lock, NULL);
-    sem_init(&wq.available, 0, 0);  /* starts at 0: no jobs yet */
+    pthread_cond_init(&wq.available, NULL);
 }
 
 static void init_thread_pool(void) {
